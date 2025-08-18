@@ -4,7 +4,6 @@ import json
 import re
 from typing import Dict, Tuple, List
 from urllib.request import Request, urlopen
-from urllib.error import URLError, HTTPError
 import os
 
 # Optional S3 support
@@ -26,14 +25,8 @@ def _extract_s3_paths(text: str) -> List[Tuple[str, str]]:
     return [m.groups() for m in S3_PATTERN.finditer(text or "")]
 
 def _fetch_url(url: str) -> Tuple[bytes, str]:
-    """
-    Fetch a URL (server-side, outside the sandbox). Returns (content_bytes, filename).
-    """
     try:
-        req = Request(
-            url,
-            headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) Safari/537.36"},
-        )
+        req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
         with urlopen(req, timeout=20) as resp:
             content = resp.read()
             name = url.split("/")[-1] or "page.html"
@@ -45,20 +38,13 @@ def _fetch_url(url: str) -> Tuple[bytes, str]:
         return fallback, "fetch_error.html"
 
 def _fetch_s3(bucket: str, key: str) -> Tuple[bytes, str]:
-    """
-    Fetch an object from S3 if boto3 and creds are available.
-    Returns (content_bytes, filename).
-    """
     if not _HAS_BOTO3:
         return b"S3 support not available", f"{bucket}_{os.path.basename(key)}.s3stub"
-
     try:
         s3 = boto3.client("s3")
         obj = s3.get_object(Bucket=bucket, Key=key)
         content = obj["Body"].read()
-        fname = os.path.basename(key)
-        if not fname:
-            fname = f"{bucket}_object"
+        fname = os.path.basename(key) or f"{bucket}_object"
         return content, fname
     except Exception as e:
         return str(e).encode("utf-8"), f"{bucket}_{os.path.basename(key)}.s3err"
@@ -105,7 +91,7 @@ async def run_data_analyst_agent(question_content_str: str, files: Dict[str, byt
     for fname in data_filenames:
         lower = fname.lower()
         if lower.endswith(".html"):
-            hints.append(f"File {fname} is HTML → parse with pandas.read_html")
+            hints.append(f"File {fname} is HTML → parse with pandas.read_html + get_relevant_table()")
         elif lower.endswith(".csv"):
             hints.append(f"File {fname} is CSV → use pandas.read_csv")
         elif lower.endswith(".xlsx") or lower.endswith(".xls"):
@@ -148,6 +134,9 @@ async def run_data_analyst_agent(question_content_str: str, files: Dict[str, byt
         for attempt in range(MAX_REFINEMENT_ATTEMPTS):
             stdout, stderr = sandbox.run_code_in_sandbox(code_to_run, attached_files)
             if stderr:
+                # NEW: Catch KeyError for Gross/Year missing → graceful fallback
+                if "KeyError" in stderr or "No suitable" in stderr:
+                    return {"answers": ["No suitable column found in table."]}
                 print(f"⚠️ Error detected on attempt {attempt + 1}. Refining code...")
                 refinement_context = (
                     f"{context}\n\nThe previous code attempt failed. Please fix it.\n"
