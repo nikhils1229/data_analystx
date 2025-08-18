@@ -9,6 +9,7 @@ async def run_data_analyst_agent(question_content_str: str, files: dict[str, byt
     The main orchestrator for the data analyst agent.
     If no files are provided (besides questions.txt), falls back to direct LLM answering.
     """
+    # Exclude questions.txt from the dataset list
     filenames = [f for f in files.keys() if not f.endswith("questions.txt")]
 
     # 🔹 If no data files, fall back to direct LLM Q&A
@@ -20,7 +21,7 @@ async def run_data_analyst_agent(question_content_str: str, files: dict[str, byt
         except Exception as e:
             return {"error": f"Direct answering failed: {e}"}
 
-    # 🔹 Otherwise, follow the original data-analysis pipeline
+    # 🔹 Otherwise, follow the data-analysis pipeline
     plan = llm.get_plan_from_llm(question_content_str, filenames)
     if "Error" in plan[0]:
         return {"error": "Could not generate a plan for the request."}
