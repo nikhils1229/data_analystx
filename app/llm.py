@@ -6,6 +6,9 @@ import json
 client = openai.OpenAI(api_key=config.OPENAI_API_KEY)
 
 def get_plan_from_llm(user_request: str, filenames: list[str]) -> list[str]:
+    """
+    Break the user request into a plan of steps.
+    """
     system_prompt = (
         "You are a master data analyst agent. Your task is to break down a user's request "
         "into a series of clear, executable steps. Do not answer the questions directly or generate code. "
@@ -17,7 +20,7 @@ def get_plan_from_llm(user_request: str, filenames: list[str]) -> list[str]:
     {user_request}
     ---
     Available Files (local only, no internet in execution): {', '.join(filenames) if filenames else 'None'}
-    
+
     Constraints:
     - The execution environment CANNOT access the internet.
     - All data must be read from the provided local files.
@@ -25,10 +28,11 @@ def get_plan_from_llm(user_request: str, filenames: list[str]) -> list[str]:
 
     Example Response:
     ["Load the provided local HTML file(s) with pandas.read_html.", 
-     "Extract the 'Highest-grossing films' table into a DataFrame.", 
-     "Compute answers (counts, earliest film over thresholds, correlations).", 
-     "Generate the plot and return a base64 data URI under 100000 bytes.",
-     "Assemble the final JSON array of strings and print it."]
+     "Extract the relevant table(s) into DataFrames.", 
+     "Clean numeric columns by removing $, , and converting to float.", 
+     "Perform computations requested (counts, correlations, filtering, etc.).", 
+     "Generate any requested plots and return them as base64 PNG data URIs under 100000 bytes.", 
+     "Assemble the final JSON answers and print them."]
     """
 
     try:
@@ -59,24 +63,35 @@ def get_plan_from_llm(user_request: str, filenames: list[str]) -> list[str]:
 
 def get_code_from_llm(task: str, context: str) -> str:
     """
-    Generate Python code for a specific task.
+    Generate Python code for a specific task using generic parsing/analysis recipes.
     """
     system_prompt = """
-You are a Python code generation agent.
+You are a Python data analysis code generator. 
+ALWAYS output raw Python code only (no explanations, no markdown).
+
 CRITICAL RULES:
-- Output ONLY raw Python code (no prose, no markdown).
-- Never refuse tasks. Always generate working Python code.
-- Do NOT attempt to fetch from the internet (requests, urllib, etc. are forbidden).
-- Assume any web page mentioned has already been saved locally as .html.
-- To parse tables from HTML: use pandas.read_html('localfile.html').
-- For calculations: print() the result directly.
-- For final answers: print(json.dumps([...])) with a JSON array of strings.
-- For plots:
+- Never refuse a task.
+- The sandbox has NO internet access → do not import requests/urllib to fetch remote data.
+- Read ONLY from provided local files.
+
+GENERIC RECIPES:
+- HTML pages: use pandas.read_html("filename.html") to extract tables. 
+  Pick the first table containing relevant columns (like 'Title', 'Gross', 'Year').
+- CSV/Excel: use pandas.read_csv / read_excel.
+- Geospatial (if .shp, .geojson): use geopandas.read_file.
+- Images: use Pillow (PIL) if image processing is needed.
+- Numeric cleanup: strip $, %, commas, and convert to float.
+- Date/year cleanup: extract 4-digit years with regex.
+- Correlation: use pandas.Series.corr() or numpy.corrcoef.
+- Plots:
   * Use matplotlib.
-  * Save figure to BytesIO as PNG.
-  * Base64 encode it.
-  * Print only the data URI (string starting with data:image/png;base64,).
-  * Keep file < 100000 bytes by reducing figure size/DPI if needed.
+  * For regression, use numpy.polyfit for line of best fit.
+  * Keep figure small (≈3.5 x 2.4 inches, dpi=100) to stay <100KB.
+  * Encode to base64 PNG via BytesIO.
+  * Print ONLY the data URI (string starting with 'data:image/png;base64,').
+- Final answers:
+  * If the task is Q&A, print(json.dumps([...])) with an array of strings.
+  * If the task is plotting only, print just the data URI string.
 """
     user_prompt = f"""
 Context:
@@ -109,6 +124,11 @@ Task:
         return f"print('Error generating code: {e}')"
 
 def answer_questions_directly(user_request: str) -> list[str]:
+    """
+    When no files are provided, answer the questions directly with the LLM
+    and return a JSON array of strings.
+    Robust parsing for possible JSON-mode quirks.
+    """
     system_prompt = (
         "You are a helpful assistant. Answer the user's questions directly. "
         "Return ONLY a JSON array of strings (each string is an answer)."
