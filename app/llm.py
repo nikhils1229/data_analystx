@@ -98,7 +98,10 @@ def answer_questions_directly(user_request: str) -> list[str]:
     """
     When no files are provided, answer the questions directly with the LLM
     and return a JSON array of strings.
-    Accepts either a raw list or a dict with a list inside.
+    Accepts:
+    - a raw list of answers
+    - a dict with a list inside
+    - a dict of key:value pairs (returns just the values)
     """
     system_prompt = (
         "You are a helpful assistant. Answer the user's questions directly. "
@@ -118,13 +121,19 @@ def answer_questions_directly(user_request: str) -> list[str]:
         content = response.choices[0].message.content
         parsed = json.loads(content)
 
+        # Case 1: direct list
         if isinstance(parsed, list):
             return parsed
 
+        # Case 2: dict with a list inside
         if isinstance(parsed, dict):
             for v in parsed.values():
                 if isinstance(v, list):
                     return v
+            # Case 3: dict of string:string → take the values
+            if all(isinstance(k, str) and isinstance(v, str) for k, v in parsed.items()):
+                return list(parsed.values())
+
             raise ValueError(f"Unexpected dict format: {parsed}")
 
         raise ValueError(f"Unexpected response format: {parsed}")
