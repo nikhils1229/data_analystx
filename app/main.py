@@ -1,19 +1,11 @@
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException
 from typing import List, Optional
 from . import agent
-from . import sandbox
-import json
 
 app = FastAPI(
     title="Data Analyst Agent API",
     description="An API that uses LLMs to source, prepare, analyze, and visualize data.",
 )
-
-@app.on_event("startup")
-async def startup_event():
-    """Build the Docker image on application startup."""
-    sandbox.build_docker_image()
-
 
 @app.post("/api/")
 async def analyze_data(
