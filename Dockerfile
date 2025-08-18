@@ -11,8 +11,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Copy the requirements file first to leverage Docker cache
 COPY requirements.txt ./
-# Install Python dependencies for the main app
-RUN pip install --no-cache-dir -r requirements.txt
+# Install Python dependencies for the main app AND for data analysis
+RUN pip install --no-cache-dir -r requirements.txt \
+    pandas \
+    matplotlib \
+    seaborn \
+    requests \
+    beautifulsoup4 \
+    duckdb \
+    lxml
 
 # Copy the rest of the application code
 COPY . .
@@ -20,6 +27,5 @@ COPY . .
 # Tell Docker what port the app will run on
 EXPOSE 10000
 
-# This is the new, crucial line that starts the web server
-# It uses the shell form to properly handle the $PORT environment variable
+# This command starts the web server
 CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-10000}
