@@ -9,15 +9,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies for data analysis
-RUN pip install --no-cache-dir \
-    pandas \
-    matplotlib \
-    seaborn \
-    requests \
-    beautifulsoup4 \
-    duckdb \
-    lxml
+# Copy the requirements file first to leverage Docker cache
+COPY requirements.txt ./
+# Install Python dependencies for the main app
+RUN pip install --no-cache-dir -r requirements.txt
 
-# The container will run a command passed to it by the Docker SDK
-CMD ["python"]
+# Copy the rest of the application code
+COPY . .
+
+# Tell Docker what port the app will run on
+EXPOSE 10000
+
+# This is the new, crucial line that starts the web server
+# It uses the shell form to properly handle the $PORT environment variable
+CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-10000}
