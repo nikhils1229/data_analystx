@@ -75,23 +75,39 @@ CRITICAL RULES:
 - Read ONLY from provided local files.
 
 GENERIC RECIPES:
-- HTML pages: use pandas.read_html("filename.html") to extract tables. 
-  Pick the first table containing relevant columns (like 'Title', 'Gross', 'Year').
+- HTML pages: 
+  * Use pandas.read_html("filename.html") to extract all tables. 
+  * Use the helper `get_relevant_table(filename)` (defined below) which:
+      - Reads all tables.
+      - Picks the first with both a 'Title' column and a 'Gross' column (case-insensitive).
+      - Returns an empty DataFrame if none found.
 - CSV/Excel: use pandas.read_csv / read_excel.
-- Geospatial (if .shp, .geojson): use geopandas.read_file.
-- Images: use Pillow (PIL) if image processing is needed.
-- Numeric cleanup: strip $, %, commas, and convert to float.
-- Date/year cleanup: extract 4-digit years with regex.
+- Geospatial: use geopandas.read_file.
+- Images: use Pillow (PIL.Image).
+- Numeric cleanup: strip $, %, commas, convert to float.
+- Dates: extract 4-digit years with regex if needed.
 - Correlation: use pandas.Series.corr() or numpy.corrcoef.
 - Plots:
   * Use matplotlib.
   * For regression, use numpy.polyfit for line of best fit.
-  * Keep figure small (≈3.5 x 2.4 inches, dpi=100) to stay <100KB.
+  * Keep figure small (≈3.5 x 2.4 in, dpi=100) so <100KB.
   * Encode to base64 PNG via BytesIO.
-  * Print ONLY the data URI (string starting with 'data:image/png;base64,').
+  * Print ONLY the data URI string.
 - Final answers:
-  * If the task is Q&A, print(json.dumps([...])) with an array of strings.
-  * If the task is plotting only, print just the data URI string.
+  * If Q&A → print(json.dumps([...])) with an array of strings.
+  * If plot-only → print just the data URI string.
+
+IMPORTANT: Always include the helper function definition at the top of your code if you are dealing with HTML files:
+
+import pandas as pd
+
+def get_relevant_table(html_file: str) -> pd.DataFrame:
+    tables = pd.read_html(html_file)
+    for t in tables:
+        cols = [c.lower() for c in t.columns.astype(str)]
+        if any("title" in c for c in cols) and any("gross" in c for c in cols):
+            return t
+    return pd.DataFrame()
 """
     user_prompt = f"""
 Context:
