@@ -81,6 +81,9 @@ GENERIC RECIPES:
       - Reads all tables.
       - Picks the first with both a 'Title' column and a 'Gross' column (case-insensitive).
       - Returns an empty DataFrame if none found.
+  * To avoid KeyErrors, use `find_column(df.columns, "gross")` to locate the revenue column
+    and `find_column(df.columns, "year")` if the year is needed.
+  * Never hardcode column names like "Gross" or "Year".
 - CSV/Excel: use pandas.read_csv / read_excel.
 - Geospatial: use geopandas.read_file.
 - Images: use Pillow (PIL.Image).
@@ -97,7 +100,7 @@ GENERIC RECIPES:
   * If Q&A → print(json.dumps([...])) with an array of strings.
   * If plot-only → print just the data URI string.
 
-IMPORTANT: Always include the helper function definition at the top of your code if you are dealing with HTML files:
+IMPORTANT: Always include these helper function definitions at the top of your code if you are dealing with HTML files:
 
 import pandas as pd
 
@@ -108,6 +111,13 @@ def get_relevant_table(html_file: str) -> pd.DataFrame:
         if any("title" in c for c in cols) and any("gross" in c for c in cols):
             return t
     return pd.DataFrame()
+
+def find_column(cols, keyword):
+    \"\"\"Find the first column whose name contains the keyword (case-insensitive).\"\"\"
+    for c in cols:
+        if keyword in c.lower():
+            return c
+    return None
 """
     user_prompt = f"""
 Context:
