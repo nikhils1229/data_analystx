@@ -15,6 +15,9 @@ import json
 import subprocess
 import tempfile
 from typing import Dict, Any
+from openai import OpenAI
+
+client = OpenAI()  # ✅ OpenAI client for preprocessing
 
 
 def run_sandbox(cmd, env=None, cwd=None):
@@ -51,6 +54,44 @@ def run_sandbox(cmd, env=None, cwd=None):
         return {"error": f"Sandbox failed to run: {e}"}
 
 
+def preprocess_questions(questions_txt: str) -> Any:
+    """
+    Try to parse questions as JSON. If not possible,
+    call LLM to normalize into structured JSON.
+    """
+    # Direct JSON parse
+    try:
+        return json.loads(questions_txt)
+    except Exception:
+        pass
+
+    # Use LLM to normalize
+    try:
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",  # or your preferred model
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a preprocessing assistant for a Data Analyst Agent. "
+                        "Convert the following input into a clean JSON object where "
+                        "each question is a key and the value is an empty string. "
+                        "If the input is already valid JSON, return it unchanged. "
+                        "Output only valid JSON, no explanations."
+                    ),
+                },
+                {"role": "user", "content": questions_txt},
+            ],
+            max_tokens=1500,
+        )
+        content = resp.choices[0].message["content"]
+        return json.loads(content)
+    except Exception:
+        # fallback: split into lines as last resort
+        lines = [l.strip() for l in questions_txt.splitlines() if l.strip()]
+        return {line: "" for line in lines}
+
+
 async def run_data_analyst_agent(
     questions_txt: str, files: Dict[str, bytes]
 ) -> Any:
@@ -65,15 +106,8 @@ async def run_data_analyst_agent(
         with tempfile.TemporaryDirectory() as tmpdir:
             q_path = os.path.join(tmpdir, "questions.json")
 
-            # Try parse as JSON
-            try:
-                q_obj = json.loads(questions_txt)
-            except Exception:
-                # fallback: treat as text → one question per line
-                lines = [
-                    l.strip() for l in questions_txt.splitlines() if l.strip()
-                ]
-                q_obj = lines
+            # 🔧 Preprocess questions (JSON or LLM normalization)
+            q_obj = preprocess_questions(questions_txt)
 
             with open(q_path, "w", encoding="utf-8") as f:
                 json.dump(q_obj, f, ensure_ascii=False)
