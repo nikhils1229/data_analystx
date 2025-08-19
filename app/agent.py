@@ -1,3 +1,4 @@
+# agent.py
 from . import llm
 from . import sandbox
 import json
@@ -52,41 +53,35 @@ def _fetch_s3(bucket: str, key: str) -> Tuple[bytes, str]:
 async def run_data_analyst_agent(question_content_str: str, files: Dict[str, bytes]) -> dict:
     """
     Orchestrator for the data analyst agent.
-
-    - Fetches URLs server-side and saves them locally as .html.
-    - Fetches S3 files if referenced (optional).
-    - Adds file-type hints for the LLM in context.
-    - Falls back to direct answering if no usable files.
     """
     attached_files: Dict[str, bytes] = dict(files or {})
 
-    # 1) URLs in the prompt
+    # 1) URLs embedded in the prompt → fetch and attach as local HTML
     urls = _extract_urls(question_content_str)
     for idx, u in enumerate(urls, start=1):
         content, name = _fetch_url(u)
         fname = f"url_{idx}_{name}"
         attached_files[fname] = content
 
-    # 2) S3 paths in the prompt
+    # 2) S3 paths in the prompt (optional)
     s3_refs = _extract_s3_paths(question_content_str)
     for idx, (bucket, key) in enumerate(s3_refs, start=1):
         content, name = _fetch_s3(bucket, key)
         fname = f"s3_{idx}_{name}"
         attached_files[fname] = content
 
-    # 3) Data-bearing filenames (exclude questions.txt)
+    # 3) Data-bearing filenames (exclude questions.txt if present)
     data_filenames = [f for f in attached_files.keys() if not f.endswith("questions.txt")]
 
-    # 4) If no files → fallback to direct LLM
+    # 4) If no files → fallback to direct LLM (best-effort)
     if not data_filenames:
-        print("⚡ No data files detected. Falling back to direct LLM answering.")
         try:
             answers = llm.answer_questions_directly(question_content_str)
             return {"answers": answers}
         except Exception as e:
             return {"error": f"Direct answering failed: {e}"}
 
-    # 5) Build file-type hints
+    # 5) Build file-type hints for the code generator
     hints = []
     for fname in data_filenames:
         lower = fname.lower()
@@ -111,38 +106,51 @@ async def run_data_analyst_agent(question_content_str: str, files: Dict[str, byt
         f"All analysis must be done on the provided local files only."
     )
 
-    # 6) Plan
+    # 6) Plan (one deterministic step when there is a fetched URL/S3 object)
     if urls or s3_refs:
         plan = [
             "Load and parse the provided local files appropriately based on file type, "
-            "compute the answers to all questions, and print the final JSON array of strings. "
+            "compute the answers to all questions, and print the final JSON array. "
             "For any requested plots, output as base64 PNG data URIs under 100000 bytes. "
             "Do not make any network calls; only read local files."
         ]
     else:
         plan = llm.get_plan_from_llm(question_content_str, data_filenames)
 
-    if "Error" in plan[0]:
+    if not plan or "Error" in plan[0]:
         return {"error": "Could not generate a plan for the request."}
 
-    # 7) Execute
+    # 7) Execute the plan with refinement
     final_result = ""
     for task in plan:
-        print(f"🚀 Executing task: {task}")
         code_to_run = llm.get_code_from_llm(task, context)
 
         for attempt in range(MAX_REFINEMENT_ATTEMPTS):
             stdout, stderr = sandbox.run_code_in_sandbox(code_to_run, attached_files)
+
             if stderr:
-                # NEW: Catch KeyError for Gross/Year missing → graceful fallback
+                # Quick, user-friendly fallbacks
                 if "KeyError" in stderr or "No suitable" in stderr:
                     return {"answers": ["No suitable column found in table."]}
-                print(f"⚠️ Error detected on attempt {attempt + 1}. Refining code...")
+
+                if "could not convert string to float" in stderr:
+                    # Force the generator to use clean_numeric()
+                    refinement_context = (
+                        f"{context}\n\nPrevious code failed due to numeric parsing.\n"
+                        f"Error:\n{stderr}\n\n"
+                        f"⚠️ Retry and **use clean_numeric(series)** for all numeric conversions. "
+                        f"Do not use .astype(float) on raw strings."
+                    )
+                    code_to_run = llm.get_code_from_llm(task, refinement_context)
+                    continue
+
+                # Generic refine
                 refinement_context = (
                     f"{context}\n\nThe previous code attempt failed. Please fix it.\n"
-                    f"Code:\n{code_to_run}\n\nError:\n{stderr}"
+                    f"Error:\n{stderr}"
                 )
                 code_to_run = llm.get_code_from_llm(task, refinement_context)
+
                 if attempt == MAX_REFINEMENT_ATTEMPTS - 1:
                     return {"error": f"Task failed after multiple attempts: {task}", "details": stderr}
             else:
@@ -150,6 +158,7 @@ async def run_data_analyst_agent(question_content_str: str, files: Dict[str, byt
                 final_result = stdout
                 break
 
+    # 8) Parse/return the final JSON
     try:
         return json.loads(final_result)
     except json.JSONDecodeError:
