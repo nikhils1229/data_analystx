@@ -89,8 +89,11 @@ async def run_data_analyst_agent(
             env = os.environ.copy()
             env["QUESTIONS_PATH"] = q_path
 
+            # 🔧 Absolute path to llm.py inside repo
+            llm_path = os.path.join(os.path.dirname(__file__), "llm.py")
+
             # Run llm.py inside sandbox
-            result = run_sandbox(["python3", "llm.py"], env=env, cwd=tmpdir)
+            result = run_sandbox(["python3", llm_path], env=env, cwd=tmpdir)
 
             return result
     except Exception as e:
