@@ -16,7 +16,6 @@ If failure → {"error": "..."}
 
 import os
 import io
-import re
 import sys
 import json
 import base64
@@ -353,24 +352,39 @@ def main():
                 sys.stdout.write(json.dumps({k: "" for k in questions.keys()}, ensure_ascii=False))
                 sys.stdout.flush()
                 return
+
         elif isinstance(questions, list):
             answers = []
+            numeric_cols = df_all.select_dtypes(include="number").columns
             for q in questions:
                 q = str(q).strip()
                 if not q:
                     answers.append("")
                     continue
 
-                # Basic heuristics
-                if "column" in q.lower() or "field" in q.lower():
+                q_low = q.lower()
+                if "column" in q_low or "field" in q_low:
                     answers.append(f"Available columns: {list(df_all.columns)}")
-                elif "row" in q.lower() or "count" in q.lower() or "size" in q.lower():
+                elif "row" in q_low or "count" in q_low or "size" in q_low:
                     answers.append(f"Dataset has {len(df_all)} rows and {len(df_all.columns)} columns.")
+                elif "sum" in q_low and not numeric_cols.empty:
+                    sums = df_all[numeric_cols].sum().to_dict()
+                    answers.append(f"Sum: {json.dumps(sums)}")
+                elif ("average" in q_low or "mean" in q_low) and not numeric_cols.empty:
+                    means = df_all[numeric_cols].mean().to_dict()
+                    answers.append(f"Average: {json.dumps(means)}")
+                elif "max" in q_low and not numeric_cols.empty:
+                    max_vals = df_all[numeric_cols].max().to_dict()
+                    answers.append(f"Max: {json.dumps(max_vals)}")
+                elif "min" in q_low and not numeric_cols.empty:
+                    min_vals = df_all[numeric_cols].min().to_dict()
+                    answers.append(f"Min: {json.dumps(min_vals)}")
                 else:
                     answers.append(f"No specific handler for: {q}")
             sys.stdout.write(json.dumps(answers, ensure_ascii=False))
             sys.stdout.flush()
             return
+
         else:
             sys.stdout.write(json.dumps({"error": "Unsupported questions format."}))
             sys.stdout.flush()
