@@ -1,35 +1,41 @@
-# sandbox.py
-import tempfile
-import subprocess
-import os
-from typing import Dict, Tuple
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 
-def run_code_in_sandbox(code_str: str, files: Dict[str, bytes]) -> Tuple[str, str]:
-    """
-    Runs `code_str` inside a temp dir with provided `files` written to disk.
-    Returns (stdout, stderr) as strings.
-    No internet – just local execution.
-    """
-    with tempfile.TemporaryDirectory() as td:
-        # write attached files
-        for name, content in (files or {}).items():
-            # Ensure subdirs exist if name contains path separators
-            full = os.path.join(td, os.path.basename(name))
-            with open(full, "wb") as f:
-                f.write(content)
+"""
+sandbox.py — thin wrapper for executing llm.py safely.
 
-        # write code to main.py
-        main_path = os.path.join(td, "main.py")
-        with open(main_path, "w", encoding="utf-8") as f:
-            f.write(code_str)
+- Provides run_sandbox(cmd, env, cwd) used by agent.py.
+- Captures stdout/stderr.
+- Returns dict with parsed JSON or error.
+"""
 
-        # run
-        proc = subprocess.Popen(
-            ["python", "main.py"],
-            cwd=td,
+import subprocess, json
+
+def run_sandbox(cmd, env=None, cwd=None):
+    try:
+        proc = subprocess.run(
+            cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True
+            check=False,
+            text=True,
+            env=env,
+            cwd=cwd
         )
-        out, err = proc.communicate(timeout=120)
-        return out.strip(), err.strip()
+        raw_out = (proc.stdout or "").strip()
+        raw_err = (proc.stderr or "").strip()
+
+        if not raw_out:
+            return {"error": "Sandbox produced no output", "stderr": raw_err}
+
+        try:
+            return json.loads(raw_out)
+        except Exception as e:
+            return {
+                "error": f"Invalid JSON from sandbox: {e}",
+                "raw": raw_out,
+                "stderr": raw_err,
+            }
+
+    except Exception as e:
+        return {"error": f"Sandbox failed to run: {e}"}
