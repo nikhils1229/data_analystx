@@ -354,7 +354,21 @@ def main():
                 sys.stdout.flush()
                 return
         elif isinstance(questions, list):
-            sys.stdout.write(json.dumps(["" for _ in questions], ensure_ascii=False))
+            answers = []
+            for q in questions:
+                q = str(q).strip()
+                if not q:
+                    answers.append("")
+                    continue
+
+                # Basic heuristics
+                if "column" in q.lower() or "field" in q.lower():
+                    answers.append(f"Available columns: {list(df_all.columns)}")
+                elif "row" in q.lower() or "count" in q.lower() or "size" in q.lower():
+                    answers.append(f"Dataset has {len(df_all)} rows and {len(df_all.columns)} columns.")
+                else:
+                    answers.append(f"No specific handler for: {q}")
+            sys.stdout.write(json.dumps(answers, ensure_ascii=False))
             sys.stdout.flush()
             return
         else:
