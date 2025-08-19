@@ -12,7 +12,7 @@ main.py — FastAPI entrypoint for the Data Analyst Agent API.
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from typing import List, Optional
 import json
-import agent  # our orchestrator with sandbox runner
+from . import agent
 
 app = FastAPI(
     title="Data Analyst Agent API",
