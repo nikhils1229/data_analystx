@@ -3,10 +3,10 @@ import re
 import json
 import subprocess
 import traceback
-from flask import Flask, request, jsonify
+from fastapi import FastAPI, Request
 from openai import OpenAI
 
-app = Flask(__name__)
+app = FastAPI()
 client = OpenAI()
 
 # ----------------------------
@@ -53,7 +53,7 @@ def normalize_questions(questions_txt: str) -> dict:
         if isinstance(q_obj, dict) and q_obj:
             return q_obj
     except Exception as e:
-        print("DEBUG normalize_questions error:", e, file=sys.stderr)
+        print("DEBUG normalize_questions error:", e)
 
     # Case 3: Fallback → split by lines
     lines = [l.strip() for l in questions_txt.splitlines() if l.strip()]
@@ -80,34 +80,31 @@ def run_llm(questions: dict) -> dict:
             text=True,
         )
         if result.returncode != 0:
-            print("DEBUG llm.py stderr:", result.stderr, file=sys.stderr)
+            print("DEBUG llm.py stderr:", result.stderr)
             return {"error": result.stderr}
         return json.loads(result.stdout)
     except Exception as e:
         return {"error": str(e), "trace": traceback.format_exc()}
 
 # ----------------------------
-# Flask API
+# FastAPI endpoint
 # ----------------------------
 
-@app.route("/api/", methods=["POST"])
-def api():
+@app.post("/api/")
+async def api(request: Request):
     try:
-        payload = request.get_json(force=True)
+        payload = await request.json()
         questions_txt = payload.get("input", "")
-        print("DEBUG raw input:", questions_txt, file=sys.stderr)
+        print("DEBUG raw input:", questions_txt)
 
         questions = normalize_questions(questions_txt)
-        print("DEBUG normalized questions:", questions, file=sys.stderr)
+        print("DEBUG normalized questions:", questions)
 
         answers = run_llm(questions)
-        print("DEBUG answers:", answers, file=sys.stderr)
+        print("DEBUG answers:", answers)
 
         # promptfoo expects a stringified JSON list under 'output'
-        return jsonify({"output": json.dumps([answers])})
+        return {"output": json.dumps([answers])}
     except Exception as e:
-        print("DEBUG api error:", traceback.format_exc(), file=sys.stderr)
-        return jsonify({"output": json.dumps([{"error": str(e)}])})
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+        print("DEBUG api error:", traceback.format_exc())
+        return {"output": json.dumps([{"error": str(e)}])}
